@@ -1,51 +1,37 @@
 'use strict';
 
+const assert = require('assert');
+
 function createTraverseReplacer(fn) {
-  const keys = new WeakMap();
-  const parents = new WeakMap();
+  const paths = new WeakMap();
 
   let root = null;
 
-  function getPath(value) {
-    let parent = value;
-    let path = '';
-
-    do {
-      const parentKey = keys.get(parent);
-
-      if (parentKey) {
-        path = path ? `${parentKey}.${path}` : parentKey;
-      }
-
-      parent = parents.get(parent);
-    } while (parent !== undefined);
-
-    return path;
-  }
-
   return function replacer(key, value) {
+    // ignore root
+
     if (root === null) {
       root = this;
       return value;
     }
 
-    // save key for each visited node
+    // save "path" for each visited intermediate node
 
-    keys.set(this, key);
-
-    // save "parent" node for each intermediate node
+    const parentPath = paths.get(this);
+    const path = parentPath ? `${parentPath}.${key}` : key;
 
     if ((typeof value === 'object' && value !== null) || Array.isArray(value)) {
-      parents.set(value, this);
+      paths.set(value, path);
     }
 
     // call "fn" with current visiting node
 
-    const path = getPath(this) ?? key;
     const isRoot = key === path;
-    const isLeaf = !parents.has(value);
+    const isLeaf = !paths.has(value);
 
-    return fn.call(this, key, value, path, isRoot, isLeaf);
+    console.log('key=%s path=%s root=%s leaf=%s', key, path, isRoot, isLeaf);
+
+    return fn.call(this, key, value, path, isRoot);
   };
 }
 
@@ -62,3 +48,25 @@ function createOmitReplacer(ignore) {
 
   return createTraverseReplacer(ignoreNode);
 }
+
+const hello = {
+  a: { some: 'value', other: 'value', third: { crazy: false } },
+  b: { some: 'other value' },
+  c: { some: 'third value' },
+  d: 0,
+};
+
+const actual = JSON.parse(
+  JSON.stringify(hello, createOmitReplacer([
+    'a.other',
+    'b.some',
+    'c',
+  ])),
+);
+
+const expected = {
+  a: { some: 'value', third: { crazy: false } },
+  d: 0,
+};
+
+assert.deepStrictEqual(actual, expected);
